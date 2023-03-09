@@ -5,7 +5,7 @@ plex_yaml_path="${yaml_dir}/media"
 arr_yaml_path="${yaml_dir}/downloader"
 mailto="huberdoggy@gmail.com"
 from="Automation"
-subject="Docker image update detected"
+subject="Docker image updates detected"
 log_file="${PWD}/docker-image-updates.txt"
 today="$(date +%Y-%m-%d)"
 
@@ -35,7 +35,7 @@ check_img_hashes() {
       sed --regexp-extended 's!\[\<.*(lscr\.io|linuxserver|haugene)\>\/|:\<latest\>\]$!!g')"
     latest="docker image ls | grep -E \"\<${repo_tag}\s+latest\>\""
     dangling="docker image ls | grep -E \"\<${repo_tag}\s+.?none.?\>\""
-    if [ "$(eval "$dangling" | wc -l)" -eq 0 ]; then
+    if [ "$(eval "$dangling" | wc -l)" -gt 0 ]; then
       old_hash="$(eval "$dangling" | awk '{print $3}')"
       new_hash="$(eval "$latest" | awk '{print $3}')"
       printf "%b\n\n" "Docker image is: ${repo_tag}\nRunning Container hash: $old_hash\n" \
@@ -69,7 +69,7 @@ do_pull() {
       -type f -name \"${f}.yml\""
         docker-compose -f "$(eval "$compose_file" | awk '{print $1}')" up -d
       else
-        continue # Invalid path so do nothinig with it
+        continue # Invalid path so do nothing with it
       fi
     done
   fi
