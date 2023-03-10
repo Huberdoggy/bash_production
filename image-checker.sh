@@ -46,8 +46,14 @@ re_up() {
     fi
     grep -m 1 "$1" "$yml_file"
     if [ $? -eq 0 ]; then
-      docker-compose -f "$yml_file" \
-        up -d --no-deps "$1" >>"$log_file"
+      if [[ "$1" =~ (plex|jackett|transmission*) ]]; then
+        # I have a deps chain in compose for these srvcs, so restart the whole chain
+        docker-compose -f "$yml_file" \
+          up -d >>"$log_file"
+      else
+        docker-compose -f "$yml_file" \
+          up -d --no-deps "$1" >>"$log_file"
+      fi
       break
     fi
   done
