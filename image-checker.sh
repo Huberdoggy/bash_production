@@ -6,14 +6,14 @@ arr_yaml_path="${yaml_dir}/downloader"
 mailto="huberdoggy@gmail.com"
 from="Automation"
 subject="Docker image updates detected"
-log_file="${PWD}/docker-image-updates.txt"
+log_file="${PWD}/logs/docker-image-updates.txt"
 today="$(date +%Y-%m-%d)"
 
 wipe_log() {
   if [ ! -f "$log_file" ]; then
     touch "$log_file" &&
       chgrp administrators "$log_file" &&
-      chmod a=,a+rX,u+w,g+w "$log_file"
+      chmod a=,u+rw,g+rw "$log_file"
   else
     cat /dev/null >"$log_file"
   fi
@@ -65,20 +65,24 @@ check_img_hashes() {
   while read data; do
     repo_tag="$(docker image inspect --format "{{.RepoTags}}" "$data" |
       sed --regexp-extended 's!\[\<.*(lscr\.io|linuxserver|haugene)\>\/|:\<latest\>\]$!!g')"
-    latest="docker image ls | grep -Es \"\b${repo_tag}\s+latest\b\""
-    dangling="docker image ls | grep -Es \"\b${repo_tag}\b\s+<?none>?\""
-    if [ "$(eval "$dangling" | wc -l)" -gt 0 ]; then
-      old_hash="$(eval "$dangling" | awk '{print $3}')"
-      new_hash="$(eval "$latest" | awk '{print $3}')"
-      printf "%b\n\n" "\nDocker image is: ${repo_tag}\nCurrent image hash: $old_hash\n" \
-        "Will attempt to stop, remove, and restart container using latest hash: $new_hash" \
-        >>"$log_file"
-      cleanup_container "$repo_tag" 2>>"$log_file" 1>/dev/null
-      re_up "$repo_tag" 2>>"$log_file" 1>/dev/null
-      printf "%b\n" "#########################################################" >>"$log_file"
-      count+=1
-    else
-      continue
+    latest="docker image ls | grep -E \"\b${repo_tag}\s+latest\b\""
+    dangling="docker image ls | grep -E \"\b${repo_tag}\b\s+<?none>?\""
+    if [[ ! "$repo_tag" =~ ^\[\]$ ]]; then
+      if [ "$(eval "$dangling" | wc -l)" -gt 0 ]; then
+        # ^^ Above - Addl check since it seems that pulling 'latest' replaces
+        # JSON in the old with empty brackets
+        old_hash="$(eval "$dangling" | awk '{print $3}')"
+        new_hash="$(eval "$latest" | awk '{print $3}')"
+        printf "%b\n\n" "\nDocker image is: ${repo_tag}\nCurrent image hash: $old_hash\n" \
+          "Will attempt to stop, remove, and restart container using latest hash: $new_hash" \
+          >>"$log_file"
+        cleanup_container "$repo_tag" 2>>"$log_file" 1>/dev/null
+        re_up "$repo_tag" 2>>"$log_file" 1>/dev/null
+        printf "%b\n" "#########################################################" >>"$log_file"
+        count+=1
+      else
+        continue
+      fi
     fi
   done < <(echo "${im_ids[@]}")
   if [ "$count" -ge 1 ]; then
@@ -107,7 +111,7 @@ do_pull() {
   printf "%b\n" "#########################################################" >>"$log_file"
 }
 
-if [ "$#" -lt 1 ]; then
+if [ "$#" -lt 1 ]; then # mainly applicable for interactive mode
   echo "Usage: $(basename "$0") <compose-file basename>"
   exit 1
 fi
