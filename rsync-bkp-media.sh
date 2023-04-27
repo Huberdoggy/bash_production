@@ -48,6 +48,25 @@ remove_old_logs() {
   fi
 }
 
+check_usb_space() {
+  # Unix uses 1024 byte blocks. Ensure at least 10 GB free space
+  local backup_vol
+  local reqSpace
+  local availableSpace
+  backup_vol="$(echo "$backup_dir" | sed --regexp-extended 's!\b\/rsync.*!!')"
+  reqSpace=10000000
+  availableSpace="$(df "$backup_vol" | awk 'NR==2 {print $4}')" # NR arg skips the header line
+
+  if ((availableSpace < reqSpace)); then
+    err_msg="Not enough free space on ${backup_vol} to run rsync script."
+    notify_err
+    exit 7
+  else
+    printf "%b\n" "Free space check on ${backup_vol} passed.\n" \
+      "Currently ${availableSpace} bytes." >>"${log_dir}/${today_log}"
+  fi
+}
+
 send_status() {
   echo "\
 To: $mailto
@@ -75,6 +94,7 @@ notify_err() {
 check_usb_path
 get_last_log
 remove_old_logs
+check_usb_space
 notify_start
 
 printf "%b\n" "\n##### BEGIN RSYNC OUTPUT #####\n" >>"${log_dir}/${today_log}"
