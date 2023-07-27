@@ -64,7 +64,7 @@ check_img_hashes() {
   im_ids=("$(docker image ls | awk '{print $3}' | grep -Evi "^\<image\>$")")
   while read data; do
     repo_tag="$(docker image inspect --format "{{.RepoTags}}" "$data" |
-      sed --regexp-extended 's!\[\<.*(lscr\.io|linuxserver|haugene)\>\/|:\<latest\>\]$!!g')"
+      sed --regexp-extended 's!\[\<(lscr\.io|haugene)\>\/(linuxserver\/)?|:\<latest\>\]$!!g')"
     latest="docker image ls | grep -E \"\b${repo_tag}\s+latest\b\""
     dangling="docker image ls | grep -E \"\b${repo_tag}\b\s+<?none>?\""
     if [[ ! "$repo_tag" =~ ^\[\]$ ]]; then
