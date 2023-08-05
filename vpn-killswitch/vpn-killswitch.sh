@@ -1,12 +1,6 @@
 #!/bin/bash
 
 VPN_IFACE="tun0"
-# NAT_IFACE="vm0" # Modified /etc/systemd/network to always assign predictable interface names
-# NAT_IP="10.7.94.7"
-# WIN_VM="10.7.94.8"
-# HOST_NAT="10.7.94.1"
-# BRIDGED_ETH_IFACE="hos0" # Will need adjust the following 2 vars to account for traveling/Wifi. Using dynDNS when remote anyway
-# NASBOX="192.168.7.70"
 UFW_RULE_FILE="${PWD}/ufw-rules.sh"
 
 display_help() {
@@ -16,8 +10,8 @@ display_help() {
     "For added portability, the script will read your preferred firewall rules and any host variables from a file." \
     "Simply create a file named 'ufw-rules.sh' and chmod +x. Place this in the same directory as the script.\nSee EXAMPLE SYNTAX for details.\n" \
     "EXAMPLE SYNTAX\n" \
-    "# Create a firewall rule (the script will automatically prefix 'sudo ufw' to your entry):\n" \
-    "\tallow out on 10.7.94.1 to 10.7.94.8 port 22 proto tcp\n" \
+    "# Create a firewall rule:\n" \
+    "\tsudo ufw allow out on 10.7.94.1 to 10.7.94.8 port 22 proto tcp\n" \
     "# Turn on the killswitch with your provider config located in a custom directory:\n" \
     "\tsudo ./vpn-killswitch.sh --on /home/<my-vpnconf-dir>\n" \
     "# Restore firewall to defaults with a single argument\n(NOTE: the script will check to ensure you have safely disconnected from your VPN first):\n" \
