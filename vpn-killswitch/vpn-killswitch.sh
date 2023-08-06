@@ -2,13 +2,17 @@
 
 VPN_IFACE="tun0"
 UFW_RULE_FILE="${PWD}/ufw-rules.sh"
+#NAMESERVER_PATTERN="^#?nameserver\s1\.(0|1)\.(0|1)\.(0|1)$"
+NS_PRIMARY="nameserver 1.1.1.1"
+NS_SECONDARY="nameserver 1.0.0.1"
+NAMESERVER_FILE="/etc/resolv.conf"
 
 display_help() {
   printf "%b\n" "USAGE: $(basename "$0") --[on|wipe] <openvpn-file path>\n" \
     "A simple solution to prevent IP/DNS leaks when running a VPN on an operating system that" \
     "doesn't provide an app natively.\n" \
     "For added portability, the script will read your preferred firewall rules and any host variables from a file." \
-    "Simply create a file named 'ufw-rules.sh' and chmod +x. Place this in the same directory as the script.\nSee EXAMPLE SYNTAX for details.\n" \
+    "Simply create a file named 'ufw-rules.sh'. Place this in the same directory as the script.\nSee EXAMPLE SYNTAX for details.\n" \
     "EXAMPLE SYNTAX\n" \
     "# Create a firewall rule:\n" \
     "\tsudo ufw allow out on 10.7.94.1 to 10.7.94.8 port 22 proto tcp\n" \
@@ -88,6 +92,27 @@ display_rules() {
   sudo ufw status numbered | sed --regexp-extended 's!^Status:\s\w+$!!'
 }
 
+check_resolv_conf() {
+  if [ -n "$1" ]; then # We started the killswitch so we want to ensure the only 2 DNS entries are those pushed from server
+    grep -Eq "${NS_PRIMARY}|${NS_SECONDARY}" "$NAMESERVER_FILE"
+    if [ "$?" -eq 0 ]; then
+      printf "%b\n" "MODIFYING DNS ENTRIES...\n\n"
+      sudo sed -e "s!$NS_PRIMARY!#$NS_PRIMARY!" -e "s!$NS_SECONDARY!#$NS_SECONDARY!" --in-place "$NAMESERVER_FILE"
+      cat "$NAMESERVER_FILE"
+    else
+      printf "%b\n" "Using primary and secondary DNS from VPN provider\n" \
+        "No additional entries detected"
+    fi
+  elif [ -z "$1" ]; then # Restoring everything back to default & ISP default route
+    grep -Eq "${NS_PRIMARY}|${NS_SECONDARY}" "$NAMESERVER_FILE"
+    if [ "$?" -eq 0 ]; then
+      sudo sed -e "s!#$NS_PRIMARY!$NS_PRIMARY!" -e "s!#$NS_SECONDARY!$NS_SECONDARY!" --in-place "$NAMESERVER_FILE"
+      printf "%b\n" "Original contents of $NAMESERVER_FILE restored:\n\n"
+      cat "$NAMESERVER_FILE"
+    fi
+  fi
+}
+
 ### BEGIN MAIN ###
 
 if [ "$#" -lt 1 ]; then
@@ -107,11 +132,13 @@ case "$1" in
   check_tun_up "$@" # Passing pos params. Function will force If/else to test 3rd condition only. See comments in check_tun_up
   apply_ufw_rules
   display_rules
+  check_resolv_conf "$@"
   ;;
 
 -w | --wipe)
   check_root
   check_tun_up # Not passing pos params. Function will force If/else to test first 2 conditions only. See comments in check_tun_up
+  check_resolv_conf
   ;;
 
 *)
