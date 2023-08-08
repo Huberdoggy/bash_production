@@ -1,4 +1,4 @@
-**USAGE: vpn-killswitch.sh -[h|o|w] --[help|on|wipe] <openvpn-file path>**
+**USAGE: vpn-killswitch.sh -[h|o|w] --[help|on|wipe] &ltopenvpn-file path&gt**
 
 A simple solution to prevent IP/DNS leaks when running a VPN on an operating system that
 doesn't provide an app natively.
@@ -13,9 +13,9 @@ since the script will look to source that. See EXAMPLE SYNTAX for details.
 
 \# Create a firewall rule:
 
-        RULE_ARR=\(
+        RULE_ARR=(
                 sudo ufw allow out on 10.7.94.1 to 10.7.94.8 port 22 proto tcp
-                \)
+                )
 
 \# Turn on the killswitch with your provider config located in a custom directory:
 
