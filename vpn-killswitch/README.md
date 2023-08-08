@@ -1,4 +1,4 @@
-**USAGE: vpn-killswitch.sh -[h|o|w] --[help|on|wipe] &ltopenvpn-file path&gt**
+**USAGE: vpn-killswitch.sh -[h|o|w] --[help|on|wipe] &lt;openvpn-file path&gt;**
 
 A simple solution to prevent IP/DNS leaks when running a VPN on an operating system that
 doesn't provide an app natively.
