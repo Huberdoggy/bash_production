@@ -2,20 +2,22 @@
 
 VPN_IFACE="tun0"
 UFW_RULE_FILE="${PWD}/ufw-rules.sh"
-#NAMESERVER_PATTERN="^#?nameserver\s1\.(0|1)\.(0|1)\.(0|1)$"
 NS_PRIMARY="nameserver 1.1.1.1"
 NS_SECONDARY="nameserver 1.0.0.1"
 NAMESERVER_FILE="/etc/resolv.conf"
 
 display_help() {
-  printf "%b\n" "USAGE: $(basename "$0") --[on|wipe] <openvpn-file path>\n" \
+  clear
+  printf "%b\n" "USAGE: $(basename "$0") -[h|o|w] --[help|on|wipe] <openvpn-file path>\n" \
     "A simple solution to prevent IP/DNS leaks when running a VPN on an operating system that" \
     "doesn't provide an app natively.\n" \
     "For added portability, the script will read your preferred firewall rules and any host variables from a file." \
-    "Simply create a file named 'ufw-rules.sh'. Place this in the same directory as the script.\nSee EXAMPLE SYNTAX for details.\n" \
+    "Simply create a file named 'ufw-rules.sh'. Place this in the same directory as the script.\n" \
+    "The only requirement is that you place your rules in an array named RULE_ARR," \
+    "since the script will look to source that. See EXAMPLE SYNTAX for details.\n" \
     "EXAMPLE SYNTAX\n" \
     "# Create a firewall rule:\n" \
-    "\tsudo ufw allow out on 10.7.94.1 to 10.7.94.8 port 22 proto tcp\n" \
+    "\tRULE_ARR=(\n\t\tsudo ufw allow out on 10.7.94.1 to 10.7.94.8 port 22 proto tcp\n\t\t)\n" \
     "# Turn on the killswitch with your provider config located in a custom directory:\n" \
     "\tsudo ./vpn-killswitch.sh --on /home/<my-vpnconf-dir>\n" \
     "# Restore firewall to defaults with a single argument\n(NOTE: the script will check to ensure you have safely disconnected from your VPN first):\n" \
