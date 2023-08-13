@@ -30,10 +30,15 @@ wipe_log() {
 }
 
 check_docker_cmd() {
-  if [ "$(command -v "$DOCKER_BINARY_NAME")" -eq 1 ] >/dev/null 2>&1; then
-    DOCKER_BINARY_NAME="$(echo "$DOCKER_BINARY_NAME" | sed --regexp-extended 's!\b-\b! !')" # upgrading to compose v2 gets rid of the hyphen
-  fi
-  printf "%b\n" "Script will run with compose command syntax \"$DOCKER_BINARY_NAME\"\n" >>"$LOGFILE"
+  {
+    if [ "$(command -v "$DOCKER_BINARY_NAME")" -eq 1 ]; then
+      DOCKER_BINARY_NAME="$(echo "$DOCKER_BINARY_NAME" | sed --regexp-extended 's!\b-\b! !')" # upgrading to compose v2 gets rid of the hyphen
+      printf "%b\n" "Compose V2 is installed on $(hostname)."
+    else
+      printf "%b\n" "Legacy compose is installed on $(hostname)."
+    fi
+    printf "%b\n" "Script will run with command syntax \"$DOCKER_BINARY_NAME\"\n"
+  } 1>>"$LOGFILE" 2>/dev/null
 }
 
 do_pull() {
@@ -91,14 +96,15 @@ check_img_hashes() {
   while read data; do
     repo_tag="$(docker image inspect --format "{{.RepoTags}}" "$data" |
       sed --regexp-extended 's!\[\b(lscr\.io|haugene)\b\/(linuxserver\/)?|\b:(latest|version.*|[0-9](\.[0-9]\.[0-9])?)\b\]$!!g')" # Will extract name
-    semver="docker image ls | grep -E \"\b${repo_tag}\b\s+(latest|version.*|[0-9](\.[0-9]\.[0-9])?)\" "                           # Will extract version
-    dangling="docker image ls | grep -E \"\b${repo_tag}\b\s+<?none>?\""
-    check_static="$(eval "$semver" | awk '{print $2}')"
-    if [[ "$check_static" =~ ^version.*$ ]] || [[ "$check_static" =~ [0-9](\.[0-9]\.[0-9])? ]]; then # We can skip remaining logic for specific semver images - a.k.a version-1.399.xxxxx
-      printf "%b\n\n" "\nDocker image ${repo_tag} has a statically assigned version of: ${check_static}.\nNo action needed." >>"$LOGFILE"
-      static_count+=1
-    elif [[ ! "$repo_tag" =~ ^\[\]$ ]]; then # Addl check since it seems that pulling 'latest' replaces JSON in the old with null brackets
-      if [ "$(eval "$dangling" | wc -l)" -gt 0 ]; then
+    if [[ ! "$repo_tag" =~ ^\[\]$ ]]; then                                                                                        # Addl check since it seems that pulling 'latest' replaces JSON in the old with null brackets
+      semver="docker image ls | grep -E \"\b${repo_tag}\b\s+(latest|version.*|[0-9](\.[0-9]\.[0-9])?)\" "                         # Will extract version
+      dangling="docker image ls | grep -E \"\b${repo_tag}\b\s+<?none>?\""
+      check_static="$(eval "$semver" | awk '{print $2}')"
+      if [[ "$check_static" =~ ^version.*$ ]] || [[ "$check_static" =~ [0-9](\.[0-9]\.[0-9])? ]]; then # We can skip remaining logic for specific semver images - a.k.a version-1.399.xxxxx
+        printf "%b\n" "\nDocker image ${repo_tag} has a statically assigned version of: ${check_static}.\nNo action needed." >>"$LOGFILE"
+        static_count+=1
+        continue # Force short-circuit prior to elif
+      elif [ "$(eval "$dangling" | wc -l)" -gt 0 ]; then
         old_hash="$(eval "$dangling" | awk '{print $3}')"      # Corresponds to "Image ID" col output of 'docker image ls'
         after_pull_hash="$(eval "$semver" | awk '{print $3}')" # Same here ...
         printf "%b\n\n" "\nDocker image is: ${repo_tag}\nDangling image hash is: $old_hash\n" \
@@ -110,8 +116,11 @@ check_img_hashes() {
         printf "%b\n" "#########################################################" >>"$LOGFILE"
         old_count+=1
       fi # Endif - dangling img found on current iteration
-    fi   # Endif - null RepoTag JSON check
-  done < <(echo "${im_ids[@]}")
+    else
+      printf "%b\n\n" "Parsed 'repo tag' is residual null '[]'\n \
+      for image hash: $data. Skipping..." >>"$LOGFILE" # NOTE - remove this line after test
+    fi                                                 # Endif - 'repo_tag' is NOT null brackets '[]'
+  done < <(echo "${im_ids[@]}")                        # End do/while read Image IDs from array
   if [[ "$old_count" -ge 1 && "$static_count" -eq 0 ]] || [[ "$old_count" -ge 1 && "$static_count" -ge 1 ]]; then
     return 0 # Also run image prune before exit
   elif [[ "$old_count" -eq 0 && "$static_count" -ge 1 ]]; then
@@ -143,7 +152,7 @@ perform_wrap_up() {
     ;;
 
   5)
-    printf "%b\n" "All images using 'latest' tag are still current from last script run." >>"$LOGFILE"
+    printf "%b\n" "\nAll images using 'latest' tag are still current from last script run." >>"$LOGFILE"
     send_status "$(cat "$LOGFILE")"
     ;;
 
