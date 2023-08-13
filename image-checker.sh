@@ -1,58 +1,82 @@
 #!/bin/bash
 
-yaml_dir="/volume1/docker/compose"
-plex_yaml_path="${yaml_dir}/media"
-arr_yaml_path="${yaml_dir}/downloader"
-mailto="huberdoggy@gmail.com"
-from="Automation"
-subject="Docker image updates detected"
-log_file="${PWD}/logs/docker-image-updates.txt"
-today="$(date +%Y-%m-%d)"
+DOCKER_BINARY_NAME="docker-compose"
+YAML_DIR="/volume1/docker/compose"
+PLEX_YAML_PATH="${YAML_DIR}/media"
+ARR_YAML_PATH="${YAML_DIR}/downloader"
+FILE_ARR=()
+MAILTO="huberdoggy@gmail.com"
+FROM="Automation"
+SUBJECT="Routine Docker Image Checks Completed"
+LOGFILE="${PWD}/logs/docker-image-updates.txt"
+TODAY="$(date +%Y-%m-%d)"
 
-wipe_log() {
-  if [ ! -f "$log_file" ]; then
-    touch "$log_file" &&
-      chgrp administrators "$log_file" &&
-      chmod a=,u+rw,g+rw "$log_file"
-  else
-    cat /dev/null >"$log_file"
+check_posit_params() {
+  if [ "$#" -lt 1 ]; then # mainly applicable for interactive mode
+    echo "Usage: $(basename "$0") <compose-file basename/s>"
+    exit 1
   fi
-  printf "%b\n\n" "$today" >"$log_file"
 }
 
-send_status() {
-  echo "\
-To: $mailto
-From: $from
-Subject: $subject
+wipe_log() {
+  if [ ! -f "$LOGFILE" ]; then
+    touch "$LOGFILE" &&
+      chgrp administrators "$LOGFILE" &&
+      chmod a=,u+rw,g+rw "$LOGFILE"
+  else
+    cat /dev/null >"$LOGFILE"
+  fi
+  printf "%b\n\n" "$TODAY" >"$LOGFILE"
+}
 
-$1
-" | ssmtp $mailto
+check_docker_cmd() {
+  if [ "$(command -v "$DOCKER_BINARY_NAME")" -eq 1 ] >/dev/null 2>&1; then
+    DOCKER_BINARY_NAME="$(echo "$DOCKER_BINARY_NAME" | sed --regexp-extended 's!\b-\b! !')" # upgrading to compose v2 gets rid of the hyphen
+  fi
+  printf "%b\n" "Script will run with compose command syntax \"$DOCKER_BINARY_NAME\"\n" >>"$LOGFILE"
+}
+
+do_pull() {
+  {
+    printf "%b\n\n" "BEGIN CONTAINER PULLS"
+    FILE_ARR+=("${@:1}")
+    for f in "${FILE_ARR[@]}"; do
+      if [ "$f" == "media" ]; then
+        COMPOSE_FILE_PLEX="find \"$PLEX_YAML_PATH\" -mindepth 1 -maxdepth 1 -type f -name \"${f}.yml\""
+        "$DOCKER_BINARY_NAME" -f "$(eval "$COMPOSE_FILE_PLEX" | awk '{print $1}')" pull
+      elif [ "$f" == "downloader" ]; then
+        COMPOSE_FILE_ARRS="find \"$ARR_YAML_PATH\" -mindepth 1 -maxdepth 1 -type f -name \"${f}.yml\""
+        "$DOCKER_BINARY_NAME" -f "$(eval "$COMPOSE_FILE_ARRS" | awk '{print $1}')" pull
+      else
+        continue # Invalid path so do nothinig with it
+      fi
+    done
+    printf "%b\n" "#########################################################"
+  } >>"$LOGFILE" 2>&1
 }
 
 cleanup_container() {
   docker stop "$(docker container ls -q --filter "name=${1}" --filter "status=running")" &&
-    echo "Removed container ID: $(docker rm -v "$_")" >>"$log_file"
+    echo "Removed container ID: $(docker rm -v "$_")" >>"$LOGFILE"
 }
 
 re_up() {
-  for f in "${file_arr[@]}"; do
+  local yml_file
+  for f in "${FILE_ARR[@]}"; do
     if [ "$f" == "media" ]; then
-      yml_file="$(eval "$compose_file_plex" | awk '{print $1}')"
+      yml_file="$(eval "$COMPOSE_FILE_PLEX" | awk '{print $1}')"
     elif [ "$f" == "downloader" ]; then
-      yml_file="$(eval "$compose_file_arrs" | awk '{print $1}')"
+      yml_file="$(eval "$COMPOSE_FILE_ARRS" | awk '{print $1}')"
     else
       continue
     fi
-    grep -m 1 "$1" "$yml_file"
+    grep -qm 1 "$1" "$yml_file"
     if [ $? -eq 0 ]; then
       if [[ "$1" =~ (plex|jackett|transmission*) ]]; then
         # I have a deps chain in compose for these srvcs, so restart the whole chain
-        docker-compose -f "$yml_file" \
-          up -d >>"$log_file"
+        "$DOCKER_BINARY_NAME" -f "$yml_file" up -d >>"$LOGFILE"
       else
-        docker-compose -f "$yml_file" \
-          up -d --no-deps "$1" >>"$log_file"
+        "$DOCKER_BINARY_NAME" -f "$yml_file" up -d --no-deps "$1" >>"$LOGFILE"
       fi
       break
     fi
@@ -60,68 +84,80 @@ re_up() {
 }
 
 check_img_hashes() {
-  count=0
+  local old_count=0
+  local static_count=0
+  local repo_tag old_hash after_pull_hash semver dangling check_static
   im_ids=("$(docker image ls | awk '{print $3}' | grep -Evi "^\<image\>$")")
   while read data; do
     repo_tag="$(docker image inspect --format "{{.RepoTags}}" "$data" |
-      sed --regexp-extended 's!\[\<(lscr\.io|haugene)\>\/(linuxserver\/)?|:\<latest\>\]$!!g')"
-    latest="docker image ls | grep -E \"\b${repo_tag}\s+latest\b\""
+      sed --regexp-extended 's!\[\b(lscr\.io|haugene)\b\/(linuxserver\/)?|\b:(latest|version.*|[0-9](\.[0-9]\.[0-9])?)\b\]$!!g')" # Will extract name
+    semver="docker image ls | grep -E \"\b${repo_tag}\b\s+(latest|version.*|[0-9](\.[0-9]\.[0-9])?)\" "                           # Will extract version
     dangling="docker image ls | grep -E \"\b${repo_tag}\b\s+<?none>?\""
-    if [[ ! "$repo_tag" =~ ^\[\]$ ]]; then
+    check_static="$(eval "$semver" | awk '{print $2}')"
+    if [[ "$check_static" =~ ^version.*$ ]] || [[ "$check_static" =~ [0-9](\.[0-9]\.[0-9])? ]]; then # We can skip remaining logic for specific semver images - a.k.a version-1.399.xxxxx
+      printf "%b\n\n" "\nDocker image ${repo_tag} has a statically assigned version of: ${check_static}.\nNo action needed." >>"$LOGFILE"
+      static_count+=1
+    elif [[ ! "$repo_tag" =~ ^\[\]$ ]]; then # Addl check since it seems that pulling 'latest' replaces JSON in the old with null brackets
       if [ "$(eval "$dangling" | wc -l)" -gt 0 ]; then
-        # ^^ Above - Addl check since it seems that pulling 'latest' replaces
-        # JSON in the old with empty brackets
-        old_hash="$(eval "$dangling" | awk '{print $3}')"
-        new_hash="$(eval "$latest" | awk '{print $3}')"
-        printf "%b\n\n" "\nDocker image is: ${repo_tag}\nCurrent image hash: $old_hash\n" \
-          "Will attempt to stop, remove, and restart container using latest hash: $new_hash" \
-          >>"$log_file"
-        cleanup_container "$repo_tag" 2>>"$log_file" 1>/dev/null
-        re_up "$repo_tag" 2>>"$log_file" 1>/dev/null
-        printf "%b\n" "#########################################################" >>"$log_file"
-        count+=1
-      else
-        continue
-      fi
-    fi
+        old_hash="$(eval "$dangling" | awk '{print $3}')"      # Corresponds to "Image ID" col output of 'docker image ls'
+        after_pull_hash="$(eval "$semver" | awk '{print $3}')" # Same here ...
+        printf "%b\n\n" "\nDocker image is: ${repo_tag}\nDangling image hash is: $old_hash\n" \
+          "Will attempt to stop, remove, and restart container using latest hash: $after_pull_hash" >>"$LOGFILE"
+        {
+          cleanup_container "$repo_tag"
+          re_up "$repo_tag"
+        } 2>>"$LOGFILE" 1>/dev/null
+        printf "%b\n" "#########################################################" >>"$LOGFILE"
+        old_count+=1
+      fi # Endif - dangling img found on current iteration
+    fi   # Endif - null RepoTag JSON check
   done < <(echo "${im_ids[@]}")
-  if [ "$count" -ge 1 ]; then
-    return 1
+  if [[ "$old_count" -ge 1 && "$static_count" -eq 0 ]] || [[ "$old_count" -ge 1 && "$static_count" -ge 1 ]]; then
+    return 0 # Also run image prune before exit
+  elif [[ "$old_count" -eq 0 && "$static_count" -ge 1 ]]; then
+    return 5 # Don't run image prune, but still email full details
   else
-    return 7
+    return 7 # Code for brief Gmail 'all imgs up to date and I don't currently have any static semvers on images'
   fi
 }
 
-do_pull() {
-  printf "%b\n\n" "BEGIN CONTAINER PULLS" >>"$log_file"
-  file_arr+=("${@:1}")
-  for f in "${file_arr[@]}"; do
-    if [ "$f" == "media" ]; then
-      compose_file_plex="find \"$plex_yaml_path\" -mindepth 1 -maxdepth 1 \
-      -type f -name \"${f}.yml\""
-      docker-compose -f "$(eval "$compose_file_plex" | awk '{print $1}')" pull >>"$log_file" 2>&1
-    elif [ "$f" == "downloader" ]; then
-      compose_file_arrs="find \"$arr_yaml_path\" -mindepth 1 -maxdepth 1 \
-      -type f -name \"${f}.yml\""
-      docker-compose -f "$(eval "$compose_file_arrs" | awk '{print $1}')" pull >>"$log_file" 2>&1
-    else
-      continue # Invalid path so do nothinig with it
-    fi
-  done
-  printf "%b\n" "#########################################################" >>"$log_file"
+send_status() {
+  echo "\
+To: $MAILTO
+From: $FROM
+Subject: $SUBJECT
+
+$1
+" | ssmtp $MAILTO
 }
 
-if [ "$#" -lt 1 ]; then # mainly applicable for interactive mode
-  echo "Usage: $(basename "$0") <compose-file basename>"
-  exit 1
-fi
+perform_wrap_up() {
+  case "$1" in
 
+  0)
+    {
+      printf "\n%b\n" "Cleaning up outdated images..."
+      docker image prune --filter "dangling=true" --force
+    } >>"$LOGFILE"
+    send_status "$(cat "$LOGFILE")"
+    ;;
+
+  5)
+    printf "%b\n" "All images using 'latest' tag are still current from last script run." >>"$LOGFILE"
+    send_status "$(cat "$LOGFILE")"
+    ;;
+
+  7) send_status "All Docker images are up to date on $(eval hostname)." ;;
+
+  *) send_status "Unknown error occurred when updating containers on $(eval hostname)." ;;
+
+  esac
+}
+
+check_posit_params "$@"
 wipe_log
+check_docker_cmd
 do_pull "$@"
 check_img_hashes
-
-if [ $? -eq 1 ]; then
-  printf "\n%b\n" "Cleaning up outdated images..." >>"$log_file"
-  docker image prune --filter "dangling=true" --force >>"$log_file"
-  send_status "$(cat "$log_file")"
-fi
+RET_CODE="$?" # Must be assigned immediately after calling check_img_hashes to store the return value
+perform_wrap_up "$RET_CODE"
