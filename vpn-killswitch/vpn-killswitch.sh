@@ -84,7 +84,7 @@ apply_ufw_rules() {
     IFS=$OLD_IFS
   else
     printf "%b\n" "Can not read your list of firewall rules\n" \
-      "Ensure you've placed a file named 'ufw-rules.txt' in the script directory"
+      "Ensure you've placed a file named 'ufw-rules.sh' in the script directory"
     exit 1
   fi
 }
